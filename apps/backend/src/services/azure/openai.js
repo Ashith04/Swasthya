@@ -47,14 +47,17 @@ class GeminiService {
     }
 
     let lastError;
+    const modelToUse = 'gemini-2.5-flash';
+
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         if (attempt > 0) {
-          console.log(`Gemini retry attempt ${attempt}/${MAX_RETRIES}`);
+          console.log(`Gemini retry attempt ${attempt}/${MAX_RETRIES} using model ${modelToUse}`);
           await sleep(RETRY_DELAY_MS * attempt);
         }
 
-        const response = await axios.post(`${GEMINI_API_URL}?key=${apiKey}`, payload, {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent?key=${apiKey}`;
+        const response = await axios.post(url, payload, {
           headers: { 'Content-Type': 'application/json' },
           timeout: 30000,
         });
@@ -69,10 +72,30 @@ class GeminiService {
         lastError = err;
         const status = err.response?.status;
         const errData = err.response?.data;
+        const errMsg = errData?.error?.message || err.message || '';
+
         console.error(
-          `Gemini request failed (attempt ${attempt + 1}): status=${status}, message=${err.message}`,
-          errData ? JSON.stringify(errData).slice(0, 500) : ''
+          `Gemini request failed (attempt ${attempt + 1}): status=${status}, message=${errMsg.slice(0, 300)}`
         );
+
+        // 429 Quota Self-Healing: Parse exact lock window remaining and sleep dynamically if short!
+        if (status === 429) {
+          const match = errMsg.match(/Please retry in (\d+\.?\d*)s/);
+          if (match) {
+            const waitSeconds = parseFloat(match[1]);
+            const sleepMs = Math.ceil((waitSeconds * 1000) + 750); // wait exact time + 750ms safe buffer
+            
+            if (sleepMs <= 6500) {
+              console.warn(`[RATE_LIMIT] ⚠️ Gemini rate limited. Sleep of ${sleepMs}ms is short enough. Sleeping to clear rate limit dynamically...`);
+              await sleep(sleepMs);
+              attempt = 0; // Reset attempts to try immediately after wait window
+              continue;
+            } else {
+              console.warn(`[RATE_LIMIT] ⚠️ Gemini rate limit sleep of ${sleepMs}ms is too long for Twilio (max 6.5s). Throwing immediately to trigger polite retry prompt.`);
+              throw err;
+            }
+          }
+        }
 
         if (status && status !== 429 && status < 500) {
           throw err;
@@ -83,7 +106,7 @@ class GeminiService {
     throw lastError;
   }
 
-  async generateReply(userText, history = []) {
+  async generateReply(userText, history = [], language = 'en') {
     // Map standard history array [{role, content}] to Gemini's format [{role, parts: [{text}]}]
     const contents = Array.isArray(history) ? history.map(msg => ({
       role: msg.role === 'assistant' ? 'model' : 'user',
@@ -95,8 +118,15 @@ class GeminiService {
       parts: [{ text: userText }]
     });
 
+    let systemInstruction = DEFAULT_SYSTEM_PROMPT;
+    if (language === 'kn') {
+      systemInstruction += "\n\nCRITICAL: The user has selected KANNADA (ಕನ್ನಡ). You MUST reply STRICTLY in warm, comforting, natural Kannada spoken text. Use sweet conversational Kannada words.";
+    } else if (language === 'hi') {
+      systemInstruction += "\n\nCRITICAL: The user has selected HINDI (हिंदी). You MUST reply STRICTLY in warm, comforting, natural Hindi spoken text. Use sweet conversational Hindi words.";
+    }
+
     return this.requestCompletion(contents, {
-      systemInstruction: DEFAULT_SYSTEM_PROMPT,
+      systemInstruction,
       temperature: 0.5,
       maxTokens: 250,
     });
@@ -124,7 +154,7 @@ Transcript: "${text}"
 
     const content = await this.requestCompletion(contents, {
       temperature: 0,
-      maxTokens: 250,
+      maxTokens: 750,
       responseMimeType: 'application/json'
     });
 

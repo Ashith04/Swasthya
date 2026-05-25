@@ -55,17 +55,31 @@ const getSpeechActionUrl = () => {
   return `${baseUrl.replace(/\/$/, '')}/api/voice/speech`;
 };
 
-const buildSpeechGatherResponse = (messages) => {
+const buildSpeechGatherResponse = (messages, language = 'en') => {
   const response = new twilio.twiml.VoiceResponse();
+  
+  let gatherLang = 'en-IN';
+  let voiceLang = 'en-IN';
+  if (language === 'kn') {
+    gatherLang = 'kn-IN';
+    voiceLang = 'kn-IN';
+  } else if (language === 'hi') {
+    gatherLang = 'hi-IN';
+    voiceLang = 'hi-IN';
+  }
+
   const gather = response.gather({
     input: 'speech',
     action: getSpeechActionUrl(),
     method: 'POST',
     speechTimeout: 'auto',
     actionOnEmptyResult: true,
+    language: gatherLang,
   });
 
-  messages.forEach((message) => gather.say(message));
+  messages.forEach((message) => {
+    gather.say({ language: voiceLang }, message);
+  });
   return response;
 };
 
@@ -100,6 +114,7 @@ const handleVoiceIncoming = async (req, res) => {
   pruneSessions();
   
   let userId = null;
+  let userLang = 'en';
   try {
     // Find or create User based on phone number
     let user = await User.findOne({ phoneNumber: from });
@@ -111,19 +126,32 @@ const handleVoiceIncoming = async (req, res) => {
       console.log(`[DB] Created new user for ${from}`);
     }
     userId = user._id;
+    userLang = user.language || 'en';
   } catch (dbError) {
     console.error('Failed to resolve user in DB:', dbError.message);
   }
 
   if (callSid) {
-    voiceSessions.set(callSid, { messages: [], updatedAt: Date.now(), userId });
+    voiceSessions.set(callSid, { messages: [], updatedAt: Date.now(), userId, language: userLang });
   }
 
-  const response = buildSpeechGatherResponse([
+  let greetings = [
     'Hello, you have reached Swasthya support.',
     'Please tell me how you are feeling today.',
-  ]);
+  ];
+  if (userLang === 'kn') {
+    greetings = [
+      'ನಮಸ್ಕಾರ, ಸ್ವಸ್ಥ ಬೆಂಬಲಕ್ಕೆ ಸ್ವಾಗತ.',
+      'ಇಂದು ನೀವು ಹೇಗೆ ಭಾವಿಸುತ್ತಿದ್ದೀರಿ ಎಂದು ದಯವಿಟ್ಟು ನನಗೆ ತಿಳಿಸಿ.',
+    ];
+  } else if (userLang === 'hi') {
+    greetings = [
+      'नमस्कार, स्वास्थ्य सहायता केंद्र में आपका स्वागत है।',
+      'कृपया मुझे बताएं कि आज आप कैसा महसूस कर रहे हैं।',
+    ];
+  }
 
+  const response = buildSpeechGatherResponse(greetings, userLang);
   res.type('text/xml').send(response.toString());
 };
 
@@ -134,72 +162,93 @@ const handleVoiceSpeech = async (req, res) => {
   pruneSessions();
   const speechText = speechResult.trim();
   const session = getOrCreateSession(callSid);
+  const userLang = session?.language || 'en';
 
   if (!speechText) {
-    const response = buildSpeechGatherResponse([
-      'I did not catch that. Please say that again.',
-    ]);
+    let retryMsg = ['I did not catch that. Please say that again.'];
+    if (userLang === 'kn') {
+      retryMsg = ['ನನಗೆ ಅದು ಸರಿಯಾಗಿ ಕೇಳಿಸಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೊಮ್ಮೆ ಹೇಳಿ.'];
+    } else if (userLang === 'hi') {
+      retryMsg = ['मैं सुन नहीं पाया। कृपया फिर से कहें।'];
+    }
+    const response = buildSpeechGatherResponse(retryMsg, userLang);
     return res.type('text/xml').send(response.toString());
   }
 
   try {
     const history = session ? session.messages.slice() : [];
     
-    // Process Gemini reply and Behavioral Data Extraction concurrently
-    const [reply, behavioralData] = await Promise.all([
-      openaiService.generateReply(speechText, history),
-      openaiService.analyzeBehavioralData(speechText).catch(err => {
-        console.error('Behavioral extraction failed:', err.message);
-        return { 
-          sentimentScore: 0.5, 
-          distressFlag: false, 
-          behavioralIndicators: [], 
-          crisisPhrases: [], 
-          gpSummaryNote: "Extraction failed due to an error." 
-        };
-      })
-    ]);
-
+    // Process Gemini voice reply immediately (low latency, saves rate limit resources for the caller)
+    const reply = await openaiService.generateReply(speechText, history, userLang);
     console.log('[SPEECH] Gemini reply:', reply);
     
     if (session) {
       updateSession(session, speechText, reply);
       
-      // Asynchronously save IVRSignal to MongoDB (don't block the twilio response)
+      // Perform advanced behavioral intelligence analysis and database logging asynchronously in the background
       if (session.userId) {
-        IVRSignal.create({
-          userId: session.userId,
-          callDuration: Math.floor(Math.random() * 120) + 30, // mock duration
-          speechMetrics: {
-            pauseDensity: Math.random() * 0.5,
-            pace: 'normal',
-            vocalFatigue: false,
-          },
-          transcriptSentiment: behavioralData.sentimentScore,
-          distressFlag: behavioralData.distressFlag,
-          behavioralIndicators: behavioralData.behavioralIndicators,
-          crisisPhrases: behavioralData.crisisPhrases,
-          gpSummaryNote: behavioralData.gpSummaryNote
-        }).then(() => {
-          console.log('[DB] Saved IVRSignal with advanced behavioral intelligence');
-          if (behavioralData.distressFlag) {
-            twilioService.sendEmergencyAlert(session.userId, behavioralData.gpSummaryNote);
-          }
-        }).catch(err => console.error('[DB] Failed to save IVRSignal:', err.message));
+        openaiService.analyzeBehavioralData(speechText)
+          .then(async (behavioralData) => {
+            await IVRSignal.create({
+              userId: session.userId,
+              callDuration: Math.floor(Math.random() * 120) + 30, // mock duration
+              speechMetrics: {
+                pauseDensity: Math.random() * 0.5,
+                pace: 'normal',
+                vocalFatigue: false,
+              },
+              transcript: speechText,
+              transcriptSentiment: behavioralData.sentimentScore,
+              distressFlag: behavioralData.distressFlag,
+              behavioralIndicators: behavioralData.behavioralIndicators,
+              crisisPhrases: behavioralData.crisisPhrases,
+              gpSummaryNote: behavioralData.gpSummaryNote
+            });
+            console.log('[DB] Saved IVRSignal with advanced behavioral intelligence');
+            if (behavioralData.distressFlag) {
+              twilioService.sendEmergencyAlert(session.userId, behavioralData.gpSummaryNote);
+            }
+          })
+          .catch(async (err) => {
+            console.error('[ANALYSIS] Background behavioral analysis failed:', err.message);
+            // Resiliency Fallback: Always save the voice transcript in MongoDB even if AI analysis is rate-limited!
+            try {
+              await IVRSignal.create({
+                userId: session.userId,
+                callDuration: Math.floor(Math.random() * 120) + 30,
+                speechMetrics: {
+                  pauseDensity: 0.1,
+                  pace: 'normal',
+                  vocalFatigue: false,
+                },
+                transcript: speechText,
+                transcriptSentiment: 0.5,
+                distressFlag: false,
+                behavioralIndicators: [],
+                crisisPhrases: [],
+                gpSummaryNote: "Analysis rate-limited."
+              });
+              console.log('[DB] Saved fallback IVRSignal after rate-limit');
+            } catch (dbErr) {
+              console.error('[DB] Failed to save fallback IVRSignal:', dbErr.message);
+            }
+          });
       }
     } else if (!callSid) {
       console.warn('Voice webhook missing CallSid; continuing without session history.');
     }
     
-    const response = buildSpeechGatherResponse([reply]);
-
+    const response = buildSpeechGatherResponse([reply], userLang);
     return res.type('text/xml').send(response.toString());
   } catch (error) {
     console.error('Voice webhook error:', error.message || error);
-    // Always return 200 with valid TwiML — Twilio plays "application error" on non-200
-    const response = buildSpeechGatherResponse([
-      'I had a brief hiccup. Could you please repeat that?',
-    ]);
+    let errorMsg = ['I had a brief hiccup. Could you please repeat that?'];
+    if (userLang === 'kn') {
+      errorMsg = ['ನನಗೆ ಸ್ವಲ್ಪ ತೊಂದರೆಯಾಗಿದೆ. ದಯವಿಟ್ಟು ಮತ್ತೊಮ್ಮೆ ಹೇಳಿ.'];
+    } else if (userLang === 'hi') {
+      errorMsg = ['मुझे थोड़ी समस्या हुई है। कृपया फिर से कहें।'];
+    }
+    const response = buildSpeechGatherResponse(errorMsg, userLang);
     return res.type('text/xml').send(response.toString());
   }
 };
@@ -223,20 +272,99 @@ router.post('/trigger-referral', (req, res) => {
 // 1. User Login / Registration
 router.post('/users', async (req, res) => {
   try {
-    const { phoneNumber } = req.body;
+    const { phoneNumber, email, firebaseUid, name, steps, activeMins, sleepHours, sleepMins, heartRate } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: 'phoneNumber is required' });
 
     let user = await User.findOne({ phoneNumber });
     if (!user) {
-      user = await User.create({
-        firebaseUid: `mock_${phoneNumber}`,
+      user = new User({
+        firebaseUid: firebaseUid || `mock_${phoneNumber}`,
         phoneNumber,
-        name: 'Guest User',
+        name: name || 'Swasthya User',
+        email,
       });
+    } else {
+      if (email) user.email = email;
+      if (name && (!user.name || user.name === 'Guest User' || user.name === 'Swasthya User')) {
+        user.name = name;
+      }
+      if (firebaseUid) user.firebaseUid = firebaseUid;
     }
+
+    if (steps !== undefined) user.steps = steps;
+    if (activeMins !== undefined) user.activeMins = activeMins;
+    if (sleepHours !== undefined) user.sleepHours = sleepHours;
+    if (sleepMins !== undefined) user.sleepMins = sleepMins;
+    if (heartRate !== undefined) user.heartRate = heartRate;
+
+    await user.save();
     res.json({ success: true, user });
   } catch (error) {
     console.error('User login error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 1b. Synchronize Fitness Metrics On Demand
+router.post('/users/sync-fit', async (req, res) => {
+  try {
+    const { userId, steps, activeMins, sleepHours, sleepMins, heartRate } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (steps !== undefined) user.steps = steps;
+    if (activeMins !== undefined) user.activeMins = activeMins;
+    if (sleepHours !== undefined) user.sleepHours = sleepHours;
+    if (sleepMins !== undefined) user.sleepMins = sleepMins;
+    if (heartRate !== undefined) user.heartRate = heartRate;
+
+    await user.save();
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Sync fit error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 1c. Update User's Preferred Language
+router.post('/users/update-language', async (req, res) => {
+  try {
+    const { userId, language } = req.body;
+    if (!userId || !language) {
+      return res.status(400).json({ error: 'userId and language are required' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    user.language = language;
+    await user.save();
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Update language error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 1d. Multilingual AI Chat Agent Endpoint
+router.post('/chat', async (req, res) => {
+  try {
+    const { userId, message, history } = req.body;
+    if (!userId || !message) {
+      return res.status(400).json({ error: 'userId and message are required' });
+    }
+
+    const user = await User.findById(userId);
+    const language = user ? user.language : 'en';
+
+    const reply = await openaiService.generateReply(message, history || [], language);
+    res.json({ success: true, reply });
+  } catch (error) {
+    console.error('Chat endpoint error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -278,11 +406,12 @@ router.get('/dashboard/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     
-    // Fetch latest check-ins and IVR signals
-    const [checkIns, signals, health] = await Promise.all([
+    // Fetch latest check-ins, IVR signals, health aggregates, and the user profile
+    const [checkIns, signals, health, user] = await Promise.all([
       CheckIn.find({ userId }).sort({ timestamp: -1 }).limit(5),
       IVRSignal.find({ userId }).sort({ timestamp: -1 }).limit(5),
-      HealthAggregate.findOne({ userId }).sort({ timestamp: -1 })
+      HealthAggregate.findOne({ userId }).sort({ timestamp: -1 }),
+      User.findById(userId)
     ]);
 
     res.json({
@@ -290,7 +419,8 @@ router.get('/dashboard/:userId', async (req, res) => {
       data: {
         recentCheckIns: checkIns,
         recentVoiceCalls: signals,
-        healthStatus: health || { anomalyScore: 0, distressFlag: false }
+        healthStatus: health || { anomalyScore: 0, distressFlag: false },
+        user: user || { name: 'Guest User' }
       }
     });
   } catch (error) {

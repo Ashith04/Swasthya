@@ -7,12 +7,12 @@ Core Product Philosophy
 The entire platform is built around the idea that emotionally distressed individuals should not need to emotionally exhaust themselves in order to receive support. The system prioritizes emotional safety, minimal cognitive load, low-friction interaction, gradual trust building, and passive behavioral intelligence rather than emotionally demanding engagement systems. The platform avoids manipulative engagement loops, emotionally invasive AI systems, fake therapeutic empathy, and excessive emotional interrogation. The goal is to create a calm, emotionally safe environment where distress can be identified behaviorally rather than requiring direct emotional disclosure.
 
 ## Current Implementation Status (Hackathon MVP)
-As of the latest sprint, the backend infrastructure is fully operational and the foundation for the frontend is laid out. Specifically:
+As of the latest sprint, the full-stack architecture is successfully wired together for the demo:
 
-1. **Database Pivot:** Successfully migrated from Azure Cosmos DB to MongoDB Atlas due to Azure subscription constraints. Mongoose schemas are fully implemented for `User`, `CheckIn`, `HealthAggregate`, and `IVRSignal`.
-2. **AI & Voice Architecture:** We built a fully working IVR (Interactive Voice Response) system using Twilio Webhooks. It routes voice calls to our Node.js backend (exposed via `ngrok`). The backend then uses the **Gemini 2.5 Flash REST API** (bypassing OpenAI quota limits) to generate empathetic conversational replies and concurrently perform sentiment analysis on the caller's speech.
-3. **Backend API Readiness:** The Express.js server has been expanded with REST API endpoints (`POST /api/users`, `POST /api/checkins`, `GET /api/dashboard/:userId`) to support the upcoming React Native frontend integration.
-4. **Data Logging:** Voice session data, including mock call durations, speech metrics, and Gemini-calculated sentiment scores, are successfully saving to MongoDB in real-time as `IVRSignal` documents.
+1. **Database & Seeding:** Migrated from Azure Cosmos DB to MongoDB Atlas. Mongoose schemas are fully implemented. A database seeding script (`npm run seed`) was built to inject mock patients with realistic historical behavioral data and anomaly scores for the GP Dashboard.
+2. **AI Voice & Escalation Architecture:** Fully working IVR system using Twilio Webhooks and the **Gemini 2.5 Flash API**. The system performs real-time sentiment analysis and behavioral extraction. If severe distress is detected, a Twilio SMS emergency alert is instantly dispatched to an ASHA worker/GP's phone.
+3. **Backend API Readiness:** The Express.js server exposes REST API endpoints for user creation, check-ins, and dashboard data. A dedicated `GET /api/gp/alerts` route was built for the Healthcare Accessibility Layer to fetch patients in crisis.
+4. **Frontend Integration:** The React Native (Expo) frontend successfully authenticates users via **Google Fit OAuth** (pulling somatic data) and seamlessly registers them in our Node.js backend. The UI includes a behavioral Dashboard with anomaly scores and a Micro-Checkin UI. Dependency management was transitioned to `pnpm` to bypass Expo SDK compatibility issues.
 
 Final Product Architecture
 The ecosystem is divided into four connected layers:

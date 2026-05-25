@@ -9,6 +9,7 @@ const IVRSignalSchema = new mongoose.Schema({
     vocalFatigue: { type: Boolean },
   },
   transcriptSentiment: { type: Number }, // 0 to 1
+  transcript: { type: String }, // User's spoken text transcript
   distressFlag: { type: Boolean, default: false },
   behavioralIndicators: [{ type: String }],
   crisisPhrases: [{ type: String }],

@@ -1,10 +1,10 @@
 const twilio = require('twilio');
-const { env } = require('../../../config/env');
+const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, ASHA_WORKER_PHONE } = require('../../config/env');
 
 class TwilioService {
   constructor() {
-    if (env.twilio?.accountSid && env.twilio?.authToken) {
-      this.client = twilio(env.twilio.accountSid, env.twilio.authToken);
+    if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
+      this.client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
     }
   }
 
