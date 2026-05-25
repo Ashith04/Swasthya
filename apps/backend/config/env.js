@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const requiredEnvVars = [
   'FIREBASE_PROJECT_ID',
-  'OPENAI_API_KEY',
+  'GEMINI_API_KEY',
   'MONGODB_URI'
 ];
 
@@ -20,8 +20,8 @@ const env = {
     // Handle literal \n in private keys if provided in .env
     privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
   },
-  openai: {
-    key: process.env.OPENAI_API_KEY,
+  gemini: {
+    key: process.env.GEMINI_API_KEY,
   },
   azureOpenAI: {
     endpoint: process.env.AZURE_OPENAI_ENDPOINT,
