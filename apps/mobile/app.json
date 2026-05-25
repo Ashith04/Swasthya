@@ -4,13 +4,7 @@
     "slug": "swasthya",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./src/assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./src/assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -18,17 +12,14 @@
       "supportsTablet": true
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./src/assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      }
-    },
-    "web": {
-      "favicon": "./src/assets/favicon.png"
+      "package": "com.swasthya.app"
     },
     "plugins": [
       "expo-router"
     ],
-    "scheme": "swasthya"
+    "scheme": "swasthya",
+    "web": {
+      "bundler": "metro"
+    }
   }
 }
