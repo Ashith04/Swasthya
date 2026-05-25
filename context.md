@@ -6,6 +6,14 @@ SWASTHYA is not being positioned as a therapy chatbot, emotional AI companion, p
 Core Product Philosophy
 The entire platform is built around the idea that emotionally distressed individuals should not need to emotionally exhaust themselves in order to receive support. The system prioritizes emotional safety, minimal cognitive load, low-friction interaction, gradual trust building, and passive behavioral intelligence rather than emotionally demanding engagement systems. The platform avoids manipulative engagement loops, emotionally invasive AI systems, fake therapeutic empathy, and excessive emotional interrogation. The goal is to create a calm, emotionally safe environment where distress can be identified behaviorally rather than requiring direct emotional disclosure.
 
+## Current Implementation Status (Hackathon MVP)
+As of the latest sprint, the full-stack architecture is successfully wired together for the demo:
+
+1. **Database & Seeding:** Migrated from Azure Cosmos DB to MongoDB Atlas. Mongoose schemas are fully implemented. A database seeding script (`npm run seed`) was built to inject mock patients with realistic historical behavioral data and anomaly scores for the GP Dashboard.
+2. **AI Voice & Escalation Architecture:** Fully working IVR system using Twilio Webhooks and the **Gemini 2.5 Flash API**. The system performs real-time sentiment analysis and behavioral extraction. If severe distress is detected, a Twilio SMS emergency alert is instantly dispatched to an ASHA worker/GP's phone.
+3. **Backend API Readiness:** The Express.js server exposes REST API endpoints for user creation, check-ins, and dashboard data. A dedicated `GET /api/gp/alerts` route was built for the Healthcare Accessibility Layer to fetch patients in crisis.
+4. **Frontend Integration:** The React Native (Expo) frontend successfully authenticates users via **Google Fit OAuth** (pulling somatic data) and seamlessly registers them in our Node.js backend. The UI includes a behavioral Dashboard with anomaly scores and a Micro-Checkin UI. Dependency management was transitioned to `pnpm` to bypass Expo SDK compatibility issues.
+
 Final Product Architecture
 The ecosystem is divided into four connected layers:
 CalmWave Emotional Support Layer
@@ -126,37 +134,41 @@ IVR signal handling
 referral systems
 
 Database
-Azure Cosmos DB acts as the primary behavioral data storage system.
-Collections include:
+MongoDB Atlas acts as the primary behavioral data storage system.
+Collections (Mongoose Models) include:
 users
 checkins
 health_aggregates
 ivr_signals
 visits
 distress_flags
-Cosmos DB was chosen because it supports flexible NoSQL structures suitable for rapidly evolving behavioral and healthcare data.
+MongoDB was chosen to bypass Azure Cosmos DB region restrictions while maintaining a flexible NoSQL structure suitable for rapidly evolving behavioral data.
 
-Azure AI Infrastructure
-Azure Anomaly Detector
-This service analyzes time-series behavioral patterns such as sleep decline, exhaustion increase, reduced activity, and worsening behavioral signals. It generates anomaly scores representing behavioral deterioration severity.
-Azure OpenAI
-Used in a restricted and controlled manner for:
+AI & Communication Infrastructure
+*Note: Due to Azure Student subscription region/quota limits, some services have been replaced or mocked to prevent hackathon bottlenecks, while preserving the overall architectural design.*
+
+Azure Anomaly Detector (Currently Mocked)
+This service analyzes time-series behavioral patterns such as sleep decline, exhaustion increase, and worsening behavioral signals. Due to deployment constraints, the anomaly score is temporarily mocked (e.g. `anomalyScore = 0.82`) until the real detection API can be integrated later.
+
+Standard OpenAI API & Gemini 2.5 Flash
+Replaces Azure OpenAI deployments. Used in a restricted and controlled manner for:
 crisis phrase detection
 GP support note generation
-escalation reasoning
+conversational check-ins over IVR (powered by Gemini)
 The system intentionally avoids therapy-style conversational AI.
+
 Azure Speech Services
 Used for:
 speech-to-text conversion
 speech pace analysis
 pause density extraction
 vocal fatigue indicators
-Azure Communication Services
-Used for:
-IVR phone system
-call routing
+
+Twilio Voice Webhooks
+Replaces Azure Communication Services for the hackathon. Used for:
+IVR phone system via Gemini REST API
+call routing and session tracking
 referral SMS delivery
-escalation communication
 
 Final Team Responsibilities
 Product & Coordination Lead
@@ -176,17 +188,18 @@ CalmWave interfaces
 GP interfaces
 check-in systems
 Firebase authentication
-Backend & Azure Team
+Backend & Infrastructure Team
 Responsible for:
 Node.js APIs
-Azure integration
-Cosmos DB
-anomaly detection
+MongoDB Atlas integration
+Azure/Gemini AI integrations
+anomaly detection (mock logic for now)
 escalation logic
 GP backend systems
 Voice & Accessibility Team
 Responsible for:
-IVR infrastructure
+Twilio IVR infrastructure
+Gemini Voice integration
 Azure Speech integration
 voice analysis pipeline
 SMS escalation workflows

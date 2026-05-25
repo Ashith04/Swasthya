@@ -1,3 +1,4 @@
+import React from 'react';
 import { Stack } from 'expo-router';
 
 export default function Layout() {
@@ -9,6 +10,8 @@ export default function Layout() {
       <Stack.Screen name="calm-wave-home" />
       <Stack.Screen name="micro-checkin" />
       <Stack.Screen name="breathing-tools" />
+      <Stack.Screen name="swasthya-chat" />
+      <Stack.Screen name="profile" />
       <Stack.Screen name="wellness-timeline" />
       <Stack.Screen name="gp-screen" />
     </Stack>
